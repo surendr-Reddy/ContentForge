@@ -69,6 +69,68 @@ function decodeHtmlEntities(text = '') {
     .replace(/&nbsp;/g, ' ');
 }
 
+// Extract video title and description from YouTube page HTML (used as fallback)
+function extractVideoMeta(html) {
+    let title = "";
+    let description = "";
+
+    const ogTitle = html.match(/<meta\s+property="og:title"\s+content="(.*?)"/s);
+    if (ogTitle) {
+        title = decodeHtmlEntities(ogTitle[1]).trim();
+    } else {
+        const titleMatch = html.match(/<title>(.*?)<\/title>/s);
+        if (titleMatch) {
+            title = decodeHtmlEntities(titleMatch[1])
+                .replace(/\s*-\s*YouTube\s*$/, "")
+                .trim();
+        }
+    }
+
+    const ogDesc = html.match(/<meta\s+property="og:description"\s+content="(.*?)"/s);
+    if (ogDesc) {
+        description = decodeHtmlEntities(ogDesc[1]).trim();
+    }
+
+    const playerResponse = extractInlineJson(html, "ytInitialPlayerResponse");
+    if (playerResponse) {
+        const vidDetails = playerResponse?.videoDetails;
+
+        if (vidDetails?.title)
+            title = vidDetails.title;
+
+        if (vidDetails?.shortDescription)
+            description = vidDetails.shortDescription;
+
+        if (vidDetails?.keywords?.length) {
+            description +=
+                "\n\nTopics: " +
+                vidDetails.keywords.slice(0, 15).join(", ");
+        }
+    }
+
+    return { title, description };
+}
+
+async function fetchYouTubePage(videoId) {
+    const pageUrl = `https://www.youtube.com/watch?v=${videoId}`;
+
+    const pageResponse = await fetch(pageUrl, {
+        headers: {
+            "User-Agent":
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+            "Accept-Language": "en-US,en;q=0.9",
+        },
+    });
+
+    if (!pageResponse.ok) {
+        throw new Error(
+            `YouTube page unreachable (${pageResponse.status})`
+        );
+    }
+
+    return await pageResponse.text();
+}
+
 function parseTranscriptXml(xml, languageCode = 'en') {
   const blocks = [...xml.matchAll(/<text start="([^"]+)" dur="([^"]+)">([^<]*)<\/text>/g)];
   const transcripts = blocks
@@ -83,46 +145,64 @@ function parseTranscriptXml(xml, languageCode = 'en') {
 }
 
 async function fetchTranscriptFromVideoPage(videoId) {
-  const pageUrl = `https://www.youtube.com/watch?v=${videoId}`;
-  const pageResponse = await fetch(pageUrl, {
-    headers: {
-      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36',
-      'Accept-Language': 'en-US,en;q=0.9',
-    },
-  });
+    const pageHtml = await fetchYouTubePage(videoId);
 
-  if (!pageResponse.ok) {
-    throw new Error(`YouTube page unreachable (${pageResponse.status})`);
-  }
+    const playerResponse = extractInlineJson(
+        pageHtml,
+        "ytInitialPlayerResponse"
+    );
 
-  const pageHtml = await pageResponse.text();
-  const playerResponse = extractInlineJson(pageHtml, 'ytInitialPlayerResponse');
-  const captionTracks = playerResponse?.captions?.playerCaptionsTracklistRenderer?.captionTracks;
+    const captionTracks =
+        playerResponse?.captions
+            ?.playerCaptionsTracklistRenderer
+            ?.captionTracks;
 
-  if (!Array.isArray(captionTracks) || captionTracks.length === 0) {
-    throw new Error('Transcript is disabled or unavailable on this video.');
-  }
+    if (!Array.isArray(captionTracks) || captionTracks.length === 0) {
+        throw new Error(
+            "Transcript is disabled or unavailable on this video."
+        );
+    }
 
-  const preferredTrack = captionTracks.find((track) => track.languageCode === 'en') || captionTracks[0];
-  const captionUrl = preferredTrack?.baseUrl;
+    const preferredTrack =
+        captionTracks.find(track => track.languageCode === "en")
+        || captionTracks[0];
 
-  if (!captionUrl) {
-    throw new Error('No caption URL was returned for this video.');
-  }
+    let captionUrl = preferredTrack?.baseUrl;
 
-  const transcriptResponse = await fetch(captionUrl, {
-    headers: {
-      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36',
-      'Accept-Language': 'en-US,en;q=0.9',
-    },
-  });
+    if (!captionUrl) {
+        throw new Error(
+            "No caption URL was returned for this video."
+        );
+    }
 
-  if (!transcriptResponse.ok) {
-    throw new Error('Caption XML could not be loaded from YouTube.');
-  }
+    captionUrl = captionUrl.replace(/&variant=[^&]*/g, "");
 
-  const transcriptXml = await transcriptResponse.text();
-  return parseTranscriptXml(transcriptXml, preferredTrack?.languageCode || 'en');
+    const transcriptResponse = await fetch(captionUrl, {
+        headers: {
+            "User-Agent":
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+            "Accept-Language": "en-US,en;q=0.9",
+        },
+    });
+
+    if (!transcriptResponse.ok) {
+        throw new Error(
+            "Caption XML could not be loaded from YouTube."
+        );
+    }
+
+    const transcriptXml = await transcriptResponse.text();
+
+    if (!transcriptXml || transcriptXml.trim().length === 0) {
+        throw new Error(
+            "Caption XML was empty — YouTube may be blocking this server."
+        );
+    }
+
+    return parseTranscriptXml(
+        transcriptXml,
+        preferredTrack?.languageCode || "en"
+    );
 }
 
 async function fetchTranscriptWithRetry(videoId, retries = 2) {
@@ -165,16 +245,75 @@ app.post("/api/transcript", async (req, res) => {
       return res.status(400).json({ error: "Invalid YouTube URL" });
     }
 
-    const transcript = await fetchTranscriptWithRetry(videoId, 2);
-    const fullText = transcript.map((item) => item.text).join(" ");
+    let transcript;
 
-    if (!fullText.trim()) {
+    try {
+        const segments = await fetchTranscriptWithRetry(videoId, 2);
+
+        transcript = segments
+            .map(item => item.text)
+            .join(" ");
+
+    } catch (transcriptError) {
+
+        console.log(
+            "All transcript methods failed:",
+            transcriptError.message
+        );
+
+        // FALLBACK:
+        // Extract video title + description from the YouTube page.
+
+        try {
+
+            const pageHtml =
+                await fetchYouTubePage(videoId);
+
+            const meta =
+                extractVideoMeta(pageHtml);
+
+            if (meta.title) {
+
+                console.log(
+                    "Using video title/description fallback for:",
+                    meta.title
+                );
+
+                const fallbackText = [
+                    `YouTube Video Title: ${meta.title}`,
+                    meta.description
+                        ? `\nVideo Description: ${meta.description}`
+                        : "",
+                    "\n\nNote: The full transcript could not be extracted, but generate engaging social media content based on the title and description."
+                ].join("");
+
+                return res.json({
+                    transcript: fallbackText,
+                    videoId,
+                    fallback: true,
+                });
+
+            }
+
+        } catch (metaError) {
+
+            console.log(
+                "Even title fallback failed:",
+                metaError.message
+            );
+
+        }
+
+        throw transcriptError;
+    }
+
+    if (!transcript.trim()) {
       return res.status(422).json({
         error: "No usable transcript was found for this video. Try a different public video with captions enabled.",
       });
     }
 
-    res.json({ transcript: fullText, videoId });
+    res.json({ transcript, videoId });
   } catch (error) {
     console.error("Transcript error:", error.message);
 
@@ -568,7 +707,7 @@ app.post("/api/refine", async (req, res) => {
 });
 
 // Start server
-const PORT = 3001;
+const PORT = process.env.PORT || 3001;
 app.listen(PORT, () => {
   console.log(`\n🚀 ContentForge Backend running at http://localhost:${PORT}\n`);
 });
