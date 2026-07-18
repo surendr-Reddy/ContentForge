@@ -87,6 +87,7 @@ function App() {
 
   // Close settings/history when clicking outside
   const panelRef = useRef(null)
+  const resultsRef = useRef(null)
   useEffect(() => {
     const handleClickOutside = (e) => {
       if (panelRef.current && !panelRef.current.contains(e.target)) {
@@ -99,6 +100,14 @@ function App() {
     }
     return () => document.removeEventListener('mousedown', handleClickOutside)
   }, [showSettings, showHistory])
+
+  useEffect(() => {
+    if (result && resultsRef.current) {
+      setTimeout(() => {
+        resultsRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' })
+      }, 120)
+    }
+  }, [result])
 
   // Close quick option menus on outside click
   useEffect(() => {
@@ -767,7 +776,7 @@ ${result.hooks?.map((h, i) => `${i + 1}. ${h}`).join('\n')}
 
         {/* Results Section */}
         {result && (
-          <div className="results">
+          <div ref={resultsRef} className="results">
             {/* Generation Info Banner */}
             <div className="gen-info-banner">
               <div className="gen-info-items">
