@@ -31,6 +31,23 @@ function getVideoId(url) {
   return null;
 }
 
+async function fetchTranscriptWithRetry(videoId, retries = 2) {
+  let lastError;
+
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    try {
+      return await YoutubeTranscript.fetchTranscript(videoId);
+    } catch (error) {
+      lastError = error;
+      if (attempt < retries) {
+        await new Promise((resolve) => setTimeout(resolve, 400));
+      }
+    }
+  }
+
+  throw lastError;
+}
+
 // ROUTE 1: Get transcript from YouTube video
 app.post("/api/transcript", async (req, res) => {
   try {
@@ -45,14 +62,28 @@ app.post("/api/transcript", async (req, res) => {
       return res.status(400).json({ error: "Invalid YouTube URL" });
     }
 
-    const transcript = await YoutubeTranscript.fetchTranscript(videoId);
+    const transcript = await fetchTranscriptWithRetry(videoId, 2);
     const fullText = transcript.map((item) => item.text).join(" ");
+
+    if (!fullText.trim()) {
+      return res.status(422).json({
+        error: "No usable transcript was found for this video. Try a different public video with captions enabled.",
+      });
+    }
 
     res.json({ transcript: fullText, videoId });
   } catch (error) {
     console.error("Transcript error:", error.message);
+
+    const message = error?.message || "Unknown transcript error";
+    if (message.toLowerCase().includes("transcript") || message.toLowerCase().includes("caption") || message.toLowerCase().includes("subtitles")) {
+      return res.status(422).json({
+        error: "Could not get transcript. Make sure the video has captions/subtitles enabled and is publicly accessible.",
+      });
+    }
+
     res.status(500).json({
-      error: "Could not get transcript. Make sure the video has captions/subtitles enabled.",
+      error: "Transcript service is temporarily unavailable. Please try again in a moment.",
     });
   }
 });
