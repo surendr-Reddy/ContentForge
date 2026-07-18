@@ -2452,6 +2452,16 @@ a {
     padding-top: 56px;
   }
 
+  .theme-toggle {
+    position: absolute;
+    top: 8px;
+    right: 4px;
+    margin: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+  }
+
   .header h1 { font-size: 2rem; }
   .header-subtitle { font-size: 0.9rem; }
   .toolbar { flex-direction: column; gap: 8px; }
@@ -2474,13 +2484,6 @@ a {
   .generate-btn { width: 100%; }
   .copy-btn { width: 100%; text-align: center; }
   .export-pdf-btn { width: 100%; }
-  .theme-toggle {
-    position: static;
-    margin: 12px auto 0;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-  }
 }
 
 @media (max-width: 380px) {

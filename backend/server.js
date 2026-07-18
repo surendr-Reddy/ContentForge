@@ -11,9 +11,14 @@ app.use(cors());
 app.use(express.json());
 
 // Connect to GitHub Models (FREE) - uses OpenAI SDK with GitHub's endpoint
+const githubToken = process.env.GITHUB_TOKEN || process.env.OPENAI_API_KEY || "demo-token";
+if (!process.env.GITHUB_TOKEN && !process.env.OPENAI_API_KEY) {
+  console.warn("[startup] No GitHub/OpenAI token found in environment. Local transcript checks can still run, but AI generation will be unavailable until a token is configured.");
+}
+
 const client = new OpenAI({
   baseURL: "https://models.github.ai/inference",
-  apiKey: process.env.GITHUB_TOKEN,
+  apiKey: githubToken,
 });
 
 // Helper: Extract YouTube video ID from URL
@@ -31,6 +36,95 @@ function getVideoId(url) {
   return null;
 }
 
+function extractInlineJson(html, globalName) {
+  const startToken = `var ${globalName} = `;
+  const startIndex = html.indexOf(startToken);
+  if (startIndex === -1) return null;
+
+  const jsonStart = startIndex + startToken.length;
+  let depth = 0;
+  for (let i = jsonStart; i < html.length; i++) {
+    if (html[i] === '{') depth++;
+    if (html[i] === '}') {
+      depth--;
+      if (depth === 0) {
+        try {
+          return JSON.parse(html.slice(jsonStart, i + 1));
+        } catch {
+          return null;
+        }
+      }
+    }
+  }
+  return null;
+}
+
+function decodeHtmlEntities(text = '') {
+  return text
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&nbsp;/g, ' ');
+}
+
+function parseTranscriptXml(xml, languageCode = 'en') {
+  const blocks = [...xml.matchAll(/<text start="([^"]+)" dur="([^"]+)">([^<]*)<\/text>/g)];
+  const transcripts = blocks
+    .map((match) => decodeHtmlEntities(match[3]).trim())
+    .filter(Boolean);
+
+  if (transcripts.length === 0) {
+    throw new Error('No transcript segments were found in the returned caption XML.');
+  }
+
+  return transcripts.map((text) => ({ text, languageCode }));
+}
+
+async function fetchTranscriptFromVideoPage(videoId) {
+  const pageUrl = `https://www.youtube.com/watch?v=${videoId}`;
+  const pageResponse = await fetch(pageUrl, {
+    headers: {
+      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36',
+      'Accept-Language': 'en-US,en;q=0.9',
+    },
+  });
+
+  if (!pageResponse.ok) {
+    throw new Error(`YouTube page unreachable (${pageResponse.status})`);
+  }
+
+  const pageHtml = await pageResponse.text();
+  const playerResponse = extractInlineJson(pageHtml, 'ytInitialPlayerResponse');
+  const captionTracks = playerResponse?.captions?.playerCaptionsTracklistRenderer?.captionTracks;
+
+  if (!Array.isArray(captionTracks) || captionTracks.length === 0) {
+    throw new Error('Transcript is disabled or unavailable on this video.');
+  }
+
+  const preferredTrack = captionTracks.find((track) => track.languageCode === 'en') || captionTracks[0];
+  const captionUrl = preferredTrack?.baseUrl;
+
+  if (!captionUrl) {
+    throw new Error('No caption URL was returned for this video.');
+  }
+
+  const transcriptResponse = await fetch(captionUrl, {
+    headers: {
+      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36',
+      'Accept-Language': 'en-US,en;q=0.9',
+    },
+  });
+
+  if (!transcriptResponse.ok) {
+    throw new Error('Caption XML could not be loaded from YouTube.');
+  }
+
+  const transcriptXml = await transcriptResponse.text();
+  return parseTranscriptXml(transcriptXml, preferredTrack?.languageCode || 'en');
+}
+
 async function fetchTranscriptWithRetry(videoId, retries = 2) {
   let lastError;
 
@@ -39,8 +133,17 @@ async function fetchTranscriptWithRetry(videoId, retries = 2) {
       return await YoutubeTranscript.fetchTranscript(videoId);
     } catch (error) {
       lastError = error;
+      try {
+        const fallbackTranscript = await fetchTranscriptFromVideoPage(videoId);
+        if (Array.isArray(fallbackTranscript) && fallbackTranscript.length > 0) {
+          return fallbackTranscript;
+        }
+      } catch (fallbackError) {
+        lastError = fallbackError;
+      }
+
       if (attempt < retries) {
-        await new Promise((resolve) => setTimeout(resolve, 400));
+        await new Promise((resolve) => setTimeout(resolve, 450));
       }
     }
   }
@@ -92,6 +195,12 @@ app.post("/api/transcript", async (req, res) => {
 app.post("/api/generate", async (req, res) => {
   try {
     const { transcript, tone, language, model } = req.body;
+
+    if (!process.env.GITHUB_TOKEN && !process.env.OPENAI_API_KEY) {
+      return res.status(503).json({
+        error: "AI generation is not configured on this server yet. Add GITHUB_TOKEN or OPENAI_API_KEY to enable model requests.",
+      });
+    }
 
     if (!transcript) {
       return res.status(400).json({ error: "No transcript provided" });
@@ -225,6 +334,12 @@ app.post("/api/generate", async (req, res) => {
 app.post("/api/review", async (req, res) => {
   try {
     const { content, model } = req.body;
+
+    if (!process.env.GITHUB_TOKEN && !process.env.OPENAI_API_KEY) {
+      return res.status(503).json({
+        error: "AI review is not configured on this server yet. Add GITHUB_TOKEN or OPENAI_API_KEY to enable model requests.",
+      });
+    }
 
     if (!content) {
       return res.status(400).json({ error: "No content to review" });
@@ -376,6 +491,12 @@ app.post("/api/improve", async (req, res) => {
 app.post("/api/refine", async (req, res) => {
   try {
     const { content, instructions, tone, language, model } = req.body;
+
+    if (!process.env.GITHUB_TOKEN && !process.env.OPENAI_API_KEY) {
+      return res.status(503).json({
+        error: "AI refinement is not configured on this server yet. Add GITHUB_TOKEN or OPENAI_API_KEY to enable model requests.",
+      });
+    }
 
     if (!content || !instructions) {
       return res.status(400).json({ error: "Missing content or instructions" });
