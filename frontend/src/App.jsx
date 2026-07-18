@@ -219,7 +219,10 @@ ${result.hooks?.map((h, i) => `${i + 1}. ${h}`).join('\n')}
       saveToHistory(data, '🔧 Refined: ' + refineText.slice(0, 40))
       setStep('')
     } catch (err) {
-      setError('Refinement failed: ' + err.message)
+      const friendlyMessage = err.message.includes('captions/subtitles') || err.message.includes('publicly accessible')
+        ? 'Could not extract a transcript from that video. Please try a public YouTube video with captions enabled, or switch to Idea mode and type your topic directly.'
+        : 'Generation failed: ' + err.message
+      setError(friendlyMessage)
       setStep('')
     } finally {
       setLoading(false)
