@@ -596,6 +596,15 @@ ${result.hooks?.map((h, i) => `${i + 1}. ${h}`).join('\n')}
                 ))}
               </div>
             </div>
+
+            <div className="settings-actions">
+              <button
+                className="save-settings-btn"
+                onClick={() => setShowSettings(false)}
+              >
+                Save
+              </button>
+            </div>
           </div>
         )}
 

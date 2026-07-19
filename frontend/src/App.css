@@ -492,6 +492,45 @@ a {
   outline: none;
 }
 
+.settings-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 18px;
+}
+
+.save-settings-btn {
+  padding: 10px 18px;
+  border-radius: 10px;
+  border: 1px solid;
+  font-size: 0.86rem;
+  font-weight: 700;
+  cursor: pointer;
+  font-family: inherit;
+  transition: all 0.2s;
+}
+
+.dark .save-settings-btn {
+  background: linear-gradient(135deg, #4f46e5, #7c3aed);
+  border-color: rgba(129, 140, 248, 0.5);
+  color: white;
+}
+
+.dark .save-settings-btn:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 8px 20px rgba(99, 102, 241, 0.28);
+}
+
+.light .save-settings-btn {
+  background: linear-gradient(135deg, #4f46e5, #7c3aed);
+  border-color: transparent;
+  color: white;
+}
+
+.light .save-settings-btn:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 8px 20px rgba(99, 102, 241, 0.18);
+}
+
 .dark .setting-field input,
 .dark .select-input {
   background: rgba(0, 0, 0, 0.3);
