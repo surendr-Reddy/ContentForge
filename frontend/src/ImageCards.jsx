@@ -9,7 +9,9 @@ function ImageCards({ result, branding, colorTheme, onExportPDF }) {
   const linkedinScrollRef = useRef(null)
   const twitterScrollRef = useRef(null)
   const [showExportMenu, setShowExportMenu] = useState(false)
+  const [openEditors, setOpenEditors] = useState({})
   const exportRef = useRef(null)
+  const slideEditorRefs = useRef({})
 
   // Close export menu on outside click
   useEffect(() => {
@@ -23,6 +25,26 @@ function ImageCards({ result, branding, colorTheme, onExportPDF }) {
     }
     return () => document.removeEventListener('mousedown', handleClick)
   }, [showExportMenu])
+
+  useEffect(() => {
+    const hasOpenEditors = Object.values(openEditors).some(Boolean)
+    if (!hasOpenEditors) return
+
+    const handleOutsideEditorClick = (e) => {
+      const clickedInsideAnOpenEditor = Object.entries(openEditors).some(([key, isOpen]) => {
+        if (!isOpen) return false
+        const editorWrapper = slideEditorRefs.current[key]
+        return editorWrapper && editorWrapper.contains(e.target)
+      })
+
+      if (!clickedInsideAnOpenEditor) {
+        setOpenEditors({})
+      }
+    }
+
+    document.addEventListener('mousedown', handleOutsideEditorClick)
+    return () => document.removeEventListener('mousedown', handleOutsideEditorClick)
+  }, [openEditors])
 
   // Editable slides state — initialized from AI result
   const [instaSlides, setInstaSlides] = useState(result.instagram?.carousel || [])
@@ -132,11 +154,21 @@ function ImageCards({ result, branding, colorTheme, onExportPDF }) {
     }
   }
 
+  const toggleEditor = (platform, index) => {
+    const key = `${platform}-${index}`
+    setOpenEditors((current) => ({
+      ...current,
+      [key]: !current[key],
+    }))
+  }
+
+  const isEditorOpen = (platform, index) => Boolean(openEditors[`${platform}-${index}`])
+
   const renderCarousel = (slides, setter, platform, refs, scrollRef, label, aspectClass, slideWidth) => (
     <div className={`platform-carousel platform-${platform}`}>
       <div className="platform-header">
         <h3>{label}</h3>
-        <span className="slide-count">{slides.length} slides • Click text to edit</span>
+        <span className="slide-count">{slides.length} slides • Click pencil to edit text</span>
       </div>
       {/* Thumbnail Navigation */}
       <div className="slide-nav-pills">
@@ -147,44 +179,65 @@ function ImageCards({ result, branding, colorTheme, onExportPDF }) {
         ))}
       </div>
       <div className="carousel-scroll" ref={scrollRef}>
-        {slides.map((slide, index) => (
-          <div className="carousel-slide-wrapper" key={index}>
-            <span className="slide-number">Slide {index + 1} of {slides.length}</span>
+        {slides.map((slide, index) => {
+          const editorKey = `${platform}-${index}`
+
+          return (
             <div
-              ref={(el) => (refs.current[index] = el)}
-              className={`carousel-slide ${aspectClass}`}
-              style={{ background: makeGradient(index, platform) }}
+              className="carousel-slide-wrapper"
+              key={index}
+              ref={(el) => {
+                slideEditorRefs.current[editorKey] = el
+              }}
             >
-              <div className="carousel-overlay"></div>
-              <div className="carousel-content">
-                <div className="carousel-emoji">{slide.emoji || '💡'}</div>
-                <h3 className="carousel-title">{slide.title}</h3>
-                <p className="carousel-body">{slide.body}</p>
-                <div className="carousel-footer-bar">
-                  <span>{getPlatformHandle(platform)}</span>
-                  <span>{index < slides.length - 1 ? 'Swipe →' : '♥ Save this!'}</span>
+              <span className="slide-number">Slide {index + 1} of {slides.length}</span>
+              <div className="slide-card-shell">
+              <button
+                type="button"
+                className={`slide-pencil-btn ${isEditorOpen(platform, index) ? 'active' : ''}`}
+                onClick={() => toggleEditor(platform, index)}
+                aria-label={`Edit slide ${index + 1}`}
+                title="Click pencil to edit text"
+              >
+                ✏️
+              </button>
+              <div
+                ref={(el) => (refs.current[index] = el)}
+                className={`carousel-slide ${aspectClass}`}
+                style={{ background: makeGradient(index, platform) }}
+              >
+                <div className="carousel-overlay"></div>
+                <div className="carousel-content">
+                  <div className="carousel-emoji">{slide.emoji || '💡'}</div>
+                  <h3 className="carousel-title">{slide.title}</h3>
+                  <p className="carousel-body">{slide.body}</p>
+                  <div className="carousel-footer-bar">
+                    <span>{getPlatformHandle(platform)}</span>
+                    <span>{index < slides.length - 1 ? 'Swipe →' : '♥ Save this!'}</span>
+                  </div>
                 </div>
               </div>
             </div>
-            {/* Editable fields below each slide */}
-            <div className="slide-edit">
-              <div className="slide-edit-label">✏️ Edit slide text (changes appear on slide above)</div>
-              <input
-                className="slide-edit-title"
-                value={slide.title}
-                onChange={(e) => updateSlide(setter, slides, index, 'title', e.target.value)}
-                placeholder="Slide title"
-              />
-              <textarea
-                className="slide-edit-body"
-                value={slide.body}
-                onChange={(e) => updateSlide(setter, slides, index, 'body', e.target.value)}
-                placeholder="Slide content"
-                rows={2}
-              />
+              {isEditorOpen(platform, index) && (
+                <div className="slide-edit slide-edit-collapsed">
+                  <input
+                    className="slide-edit-title"
+                    value={slide.title}
+                    onChange={(e) => updateSlide(setter, slides, index, 'title', e.target.value)}
+                    placeholder="Slide title"
+                  />
+                  <textarea
+                    className="slide-edit-body"
+                    value={slide.body}
+                    onChange={(e) => updateSlide(setter, slides, index, 'body', e.target.value)}
+                    placeholder="Slide content"
+                    rows={2}
+                  />
+                </div>
+              )}
             </div>
-          </div>
-        ))}
+          )
+        })}
       </div>
       <button className="download-platform-btn" onClick={() => downloadPlatformSlides(refs, `${branding.name.toLowerCase().replace(/\s+/g, '')}-${platform}`)}>
         ⬇️ Download {label.split(' ').slice(1).join(' ')} PNGs

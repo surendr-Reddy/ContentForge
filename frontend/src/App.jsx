@@ -50,6 +50,7 @@ function App() {
   const modelMenuRef = useRef(null)
   const toneMenuRef = useRef(null)
   const langMenuRef = useRef(null)
+  const progressRef = useRef(null)
 
   const REFINE_SUGGESTIONS = [
     'Make it funnier',
@@ -372,6 +373,10 @@ ${result.hooks?.map((h, i) => `${i + 1}. ${h}`).join('\n')}
     setResult(null)
     setLoading(true)
     setGenerationSteps([])
+
+    requestAnimationFrame(() => {
+      progressRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    })
 
     const updateStep = (steps) => setGenerationSteps([...steps])
 
@@ -758,7 +763,7 @@ ${result.hooks?.map((h, i) => `${i + 1}. ${h}`).join('\n')}
 
           {/* Progress Steps */}
           {loading && generationSteps.length > 0 && (
-            <div className="progress-steps">
+            <div ref={progressRef} className="progress-steps">
               {generationSteps.map((s, i) => (
                 <div key={i} className={`progress-step ${s.status}`}>
                   <span className="progress-step-icon">

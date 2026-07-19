@@ -1651,6 +1651,39 @@ a {
 .dark .slide-number { background: #1f2937; color: #9ca3af; }
 .light .slide-number { background: #e2e8f0; color: #64748b; }
 
+.slide-card-shell {
+  position: relative;
+}
+
+.slide-pencil-btn {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  z-index: 3;
+  width: 34px;
+  height: 34px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  background: rgba(15, 23, 42, 0.55);
+  color: #fff;
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  box-shadow: 0 10px 30px rgba(15, 23, 42, 0.25);
+  backdrop-filter: blur(10px);
+  transition: transform 0.2s ease, background 0.2s ease, border-color 0.2s ease;
+}
+
+.slide-pencil-btn:hover {
+  transform: translateY(-1px) scale(1.03);
+  background: rgba(15, 23, 42, 0.72);
+}
+
+.slide-pencil-btn.active {
+  background: rgba(99, 102, 241, 0.92);
+  border-color: rgba(255, 255, 255, 0.28);
+}
+
 /* Slide Sizes */
 .slide-square { width: 300px; height: 300px; }
 .slide-landscape { width: 380px; height: 280px; }
@@ -1814,6 +1847,16 @@ a {
 .light .slide-edit-body:focus { border-color: #6366f1; }
 
 .slide-edit-title { margin-bottom: 8px; }
+
+.slide-edit-collapsed {
+  margin-top: 0;
+}
+
+.slide-edit-collapsed .slide-edit-title,
+.slide-edit-collapsed .slide-edit-body {
+  width: 100%;
+  margin-top: 0;
+}
 
 /* Download Buttons */
 .download-platform-btn,
