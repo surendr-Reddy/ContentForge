@@ -131,6 +131,24 @@ async function fetchYouTubePage(videoId) {
     return await pageResponse.text();
 }
 
+async function fetchYouTubeOEmbed(videoId) {
+  const oEmbedUrl = `https://www.youtube.com/oembed?url=https://www.youtube.com/watch?v=${videoId}&format=json`;
+
+  const response = await fetch(oEmbedUrl, {
+    headers: {
+      "User-Agent":
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+      "Accept-Language": "en-US,en;q=0.9",
+    },
+  });
+
+  if (!response.ok) {
+    throw new Error(`YouTube metadata unavailable (${response.status})`);
+  }
+
+  return await response.json();
+}
+
 function parseTranscriptXml(xml, languageCode = 'en') {
   const blocks = [...xml.matchAll(/<text start="([^"]+)" dur="([^"]+)">([^<]*)<\/text>/g)];
   const transcripts = blocks
@@ -261,16 +279,32 @@ app.post("/api/transcript", async (req, res) => {
             transcriptError.message
         );
 
-        // FALLBACK:
-        // Extract video title + description from the YouTube page.
+      // FALLBACK:
+      // Try metadata first, then the YouTube page HTML if oEmbed is not available.
 
         try {
 
-            const pageHtml =
-                await fetchYouTubePage(videoId);
+        let meta = null;
 
-            const meta =
-                extractVideoMeta(pageHtml);
+        try {
+          const oEmbed = await fetchYouTubeOEmbed(videoId);
+          meta = {
+            title: oEmbed?.title || "",
+            description: oEmbed?.author_name
+              ? `By ${oEmbed.author_name}`
+              : "",
+          };
+        } catch (oEmbedError) {
+          console.log(
+            "YouTube oEmbed fallback failed:",
+            oEmbedError.message
+          );
+        }
+
+        if (!meta?.title) {
+          const pageHtml = await fetchYouTubePage(videoId);
+          meta = extractVideoMeta(pageHtml);
+        }
 
             if (meta.title) {
 
